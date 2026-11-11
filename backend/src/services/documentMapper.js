@@ -7,7 +7,7 @@ function createDocumentRecord(file, owner) {
     originalName: path.basename(file.originalname.replace(/\\/g, '/')) || 'document',
     size: file.size,
     uploadedAt: new Date().toISOString(),
-    owner,
+    userId: owner,
     mimeType: file.mimetype,
     storageName: file.filename,
   };
@@ -19,7 +19,7 @@ function toPublicDocument(document) {
     originalName: document.originalName,
     size: document.size,
     uploadedAt: document.uploadedAt,
-    owner: document.owner,
+    owner: document.userId,
   };
 }
 

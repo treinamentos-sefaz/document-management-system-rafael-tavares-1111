@@ -33,5 +33,22 @@
 
 ---
 
+## Executar o DMS
+
+Instale as dependências em `backend` e `frontend` com `npm install`. Configure no backend `JWT_SECRET` com pelo menos 32 bytes aleatórios e mantenha o segredo fora do repositório. Exemplo para desenvolvimento:
+
+```bash
+export JWT_SECRET="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
+npm --prefix backend start
+```
+
+Em outro terminal, execute `npm --prefix frontend run dev` e acesse o endereço exibido pelo Vite. O proxy de desenvolvimento encaminha `/api` para o backend na porta 3000, removendo o prefixo; em produção, configure proxy equivalente e HTTPS. `JWT_EXPIRES_IN` é opcional e vale `1h` por padrão. O backend também aceita `PORT`, `MAX_FILE_SIZE_MB`, `MAX_UPLOADS_PER_MINUTE` e `ALLOWED_MIME_TYPES`.
+
+Usuários são armazenados localmente em `backend/data/users.json` com senha em hash; proteja as permissões e os backups desse arquivo. A persistência e os limitadores pressupõem um único processo. Os arquivos ficam em `backend/storage`, mas seus metadados permanecem em memória e são perdidos ao reiniciar; arquivos órfãos não são atribuídos automaticamente. A sessão fica somente na memória do navegador, e sair não revoga o token antes de sua expiração.
+
+Para verificar: `npm --prefix backend test` e `npm --prefix frontend run build`.
+
+---
+
 &copy; 2025 GitHub &bull; [Code of Conduct](https://www.contributor-covenant.org/version/2/1/code_of_conduct/code_of_conduct.md) &bull; [MIT License](https://gh.io/mit)
 

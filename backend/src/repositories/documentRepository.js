@@ -24,7 +24,7 @@ function createDocumentRepository(storageDirectory) {
 
     findAllByOwner(owner) {
       return Array.from(documents.values())
-        .filter((document) => document.owner === owner)
+        .filter((document) => document.userId === owner)
         .sort((first, second) => {
           const dateOrder = second.uploadedAt.localeCompare(first.uploadedAt);
           return dateOrder || first.id.localeCompare(second.id);
@@ -33,7 +33,7 @@ function createDocumentRepository(storageDirectory) {
 
     findByIdAndOwner(id, owner) {
       const document = documents.get(id);
-      return document?.owner === owner ? document : undefined;
+      return document?.userId === owner ? document : undefined;
     },
 
     getFilePath,

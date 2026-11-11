@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import DocumentList from './components/DocumentList.jsx';
 import UploadComponent from './components/UploadComponent.jsx';
+import AuthForm from './components/AuthForm.jsx';
 import {
   downloadDocument,
   listDocuments,
@@ -8,9 +9,16 @@ import {
 } from './services/documentsApi.js';
 import './App.css';
 
-const userId = import.meta.env.VITE_USER_ID?.trim() || 'demo-user';
-
 export default function App() {
+  const [session, setSession] = useState(null);
+
+  if (!session) return <AuthForm onLogin={setSession} />;
+
+  return <DocumentWorkspace key={session.token} session={session} onLogout={() => setSession((current) => current?.token === session.token ? null : current)} />;
+}
+
+function DocumentWorkspace({ session, onLogout }) {
+  const pendingActions = useRef(new Set());
   const [documents, setDocuments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [listError, setListError] = useState(null);
@@ -20,19 +28,33 @@ export default function App() {
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
+    const actions = pendingActions.current;
+    return () => {
+      for (const controller of actions) controller.abort();
+    };
+  }, []);
+
+  function endSession() {
+    for (const controller of pendingActions.current) controller.abort();
+    onLogout();
+  }
+
+  useEffect(() => {
     let isCurrent = true;
+    const controller = new AbortController();
 
     async function refreshDocuments() {
       setIsLoading(true);
       setListError(null);
       try {
-        const result = await listDocuments(userId);
+        const result = await listDocuments(session.token, controller.signal);
         if (isCurrent) {
           setDocuments(result);
         }
       } catch (error) {
         if (isCurrent) {
-          setListError(error.message);
+          if (error.status === 401) endSession();
+          else setListError(error.message);
         }
       } finally {
         if (isCurrent) {
@@ -44,36 +66,45 @@ export default function App() {
     refreshDocuments();
     return () => {
       isCurrent = false;
+      controller.abort();
     };
-  }, [refreshToken]);
+  }, [refreshToken, session.token]);
 
   async function handleUpload(file) {
+    const controller = new AbortController();
+    pendingActions.current.add(controller);
     setIsUploading(true);
     setNotice(null);
 
     try {
-      await uploadDocument(file, userId);
+      await uploadDocument(file, session.token, controller.signal);
       setNotice({ type: 'success', message: 'Documento enviado com sucesso.' });
       setRefreshToken((current) => current + 1);
       return true;
     } catch (error) {
-      setNotice({ type: 'error', message: error.message });
+      if (error.status === 401) endSession();
+      else if (error.name !== 'AbortError') setNotice({ type: 'error', message: error.message });
       return false;
     } finally {
+      pendingActions.current.delete(controller);
       setIsUploading(false);
     }
   }
 
   async function handleDownload(document) {
+    const controller = new AbortController();
+    pendingActions.current.add(controller);
     setDownloadingId(document.id);
     setNotice(null);
 
     try {
-      await downloadDocument(document, userId);
+      await downloadDocument(document, session.token, controller.signal);
       setNotice({ type: 'success', message: `Download iniciado: ${document.originalName}` });
     } catch (error) {
-      setNotice({ type: 'error', message: error.message });
+      if (error.status === 401) endSession();
+      else if (error.name !== 'AbortError') setNotice({ type: 'error', message: error.message });
     } finally {
+      pendingActions.current.delete(controller);
       setDownloadingId(null);
     }
   }
@@ -85,10 +116,10 @@ export default function App() {
           <span className="brand-mark" aria-hidden="true">D</span>
           <span>DMS<span className="brand-period">.</span></span>
         </a>
-        <div className="identity" title="Identificador de demonstração, não autenticado">
+        <div className="identity">
           <span className="identity-dot" aria-hidden="true" />
-          <span>{userId}</span>
-          <span className="identity-label">DEMO</span>
+          <span className="identity-email">{session.user.email}</span>
+          <button className="logout-button" type="button" onClick={endSession}>Sair</button>
         </div>
       </header>
 
@@ -121,9 +152,6 @@ export default function App() {
       <div className="content-grid">
         <aside className="upload-column">
           <UploadComponent onUpload={handleUpload} isUploading={isUploading} />
-          <p className="demo-note">
-            Espaço de demonstração. O identificador de usuário não substitui autenticação.
-          </p>
         </aside>
 
         <DocumentList

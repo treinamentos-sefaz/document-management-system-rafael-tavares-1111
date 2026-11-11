@@ -1,7 +1,12 @@
 const express = require('express');
 const path = require('node:path');
+const jwt = require('jsonwebtoken');
 const { createDocumentRepository } = require('./repositories/documentRepository');
+const { createUserRepository } = require('./repositories/userRepository');
 const { createDocumentService } = require('./services/documentService');
+const { createAuthService } = require('./services/authService');
+const { createAuthRouter } = require('./routes/authRoutes');
+const { createAuthenticateUser } = require('./middleware/authenticateUser');
 const {
   createDocumentRouter,
   getAllowedMimeTypes,
@@ -12,39 +17,38 @@ const { storageDirectory: defaultStorageDirectory } = require('./config/upload')
 
 const PORT = process.env.PORT || 3000;
 
-function loadAuthenticateOwner() {
-  if (process.env.NODE_ENV !== 'production' || !process.env.DMS_AUTH_MIDDLEWARE) {
-    return undefined;
-  }
-
-  const loadedModule = require(path.resolve(process.env.DMS_AUTH_MIDDLEWARE));
-  const authenticateOwner = loadedModule.authenticateOwner || loadedModule;
-  if (typeof authenticateOwner !== 'function') {
-    throw new Error('DMS_AUTH_MIDDLEWARE deve exportar um middleware de autenticação.');
-  }
-
-  return authenticateOwner;
-}
-
 function createApp({
   storageDirectory = defaultStorageDirectory,
+  dataDirectory = path.resolve(__dirname, '../data'),
   maxFileSizeBytes = getMaxFileSizeBytes(),
   maxUploadsPerMinute = getMaxUploadsPerMinute(),
   allowedMimeTypes = getAllowedMimeTypes(),
-  authenticateOwner,
+  jwtSecret = process.env.JWT_SECRET,
+  jwtExpiresIn = process.env.JWT_EXPIRES_IN || '1h',
+  maxAuthAttempts = 20,
 } = {}) {
-  if (process.env.NODE_ENV === 'production' && typeof authenticateOwner !== 'function') {
-    throw new Error('Em produção, configure um middleware de autenticação que defina req.user.id.');
+  if (typeof jwtSecret !== 'string' || Buffer.byteLength(jwtSecret, 'utf8') < 32) {
+    throw new Error('JWT_SECRET deve conter pelo menos 32 bytes.');
+  }
+  try {
+    const payload = jwt.decode(jwt.sign({}, jwtSecret, { expiresIn: jwtExpiresIn }));
+    if (payload.exp <= payload.iat) throw new Error('Expiração inválida.');
+  } catch {
+    throw new Error('JWT_EXPIRES_IN deve ser uma duração válida e positiva.');
   }
 
   const app = express();
   const documentRepository = createDocumentRepository(storageDirectory);
   const documentService = createDocumentService(documentRepository);
+  const userRepository = createUserRepository(dataDirectory);
+  const authService = createAuthService(userRepository, jwtSecret, jwtExpiresIn);
+  const authenticateOwner = createAuthenticateUser(userRepository, jwtSecret);
 
   app.use(express.json());
   app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
   });
+  app.use(createAuthRouter(authService, maxAuthAttempts));
   app.use(createDocumentRouter({
     documentService,
     storageDirectory,
@@ -91,7 +95,7 @@ function createApp({
   return app;
 }
 
-const app = createApp({ authenticateOwner: loadAuthenticateOwner() });
+const app = createApp();
 
 if (require.main === module) {
   app.listen(PORT, () => {

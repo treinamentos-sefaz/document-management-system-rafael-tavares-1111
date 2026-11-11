@@ -38,7 +38,7 @@ function createDocumentRouter({
       fileSize: maxFileSizeBytes,
       files: 1,
       fields: 0,
-      parts: 1,
+      parts: 2,
       fieldNameSize: 64,
       headerPairs: 50,
     },
@@ -86,22 +86,6 @@ function createDocumentRouter({
     next();
   }
 
-  function validateDemoOwner(req, res, next) {
-    const owner = req.get('X-User-Id')?.trim();
-    if (!owner || owner.length > 100) {
-      res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'O cabeçalho X-User-Id é obrigatório e deve ter até 100 caracteres.',
-        },
-      });
-      return;
-    }
-
-    req.owner = owner;
-    next();
-  }
-
   function validateAuthenticatedOwner(req, res, next) {
     const owner = req.user?.id;
     if (typeof owner !== 'string' || !owner.trim() || owner.trim().length > 100) {
@@ -115,9 +99,7 @@ function createDocumentRouter({
     next();
   }
 
-  const ownerMiddleware = authenticateOwner
-    ? [authenticateOwner, validateAuthenticatedOwner]
-    : [validateDemoOwner];
+  const ownerMiddleware = [authenticateOwner, validateAuthenticatedOwner];
 
   router.post('/upload', ownerMiddleware, limitUploadRate, upload.single('file'), controller.upload);
   router.get('/documents', ownerMiddleware, controller.list);
