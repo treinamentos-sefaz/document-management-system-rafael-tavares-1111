@@ -1,5 +1,4 @@
-const { randomUUID } = require('node:crypto');
-const path = require('node:path');
+const { createDocumentRecord, toPublicDocument } = require('./documentMapper');
 
 function createServiceError(statusCode, code, message) {
   const error = new Error(message);
@@ -8,14 +7,13 @@ function createServiceError(statusCode, code, message) {
   return error;
 }
 
-function toPublicDocument(document) {
-  return {
-    id: document.id,
-    originalName: document.originalName,
-    size: document.size,
-    uploadedAt: document.uploadedAt,
-    owner: document.owner,
-  };
+async function removeUploadedFile(documentRepository, fileName) {
+  try {
+    await documentRepository.removeFile(fileName);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function createDocumentService(documentRepository) {
@@ -26,29 +24,19 @@ function createDocumentService(documentRepository) {
       }
 
       if (file.size === 0) {
-        await documentRepository.removeFile(file.filename);
+        const wasRemoved = await removeUploadedFile(documentRepository, file.filename);
+        if (!wasRemoved) {
+          throw createServiceError(500, 'FILE_CLEANUP_FAILED', 'Não foi possível limpar o arquivo inválido.');
+        }
         throw createServiceError(400, 'VALIDATION_ERROR', 'O arquivo não pode estar vazio.');
       }
 
-      const originalName = path.basename(file.originalname.replace(/\\/g, '/')) || 'document';
-      const document = {
-        id: randomUUID(),
-        originalName,
-        size: file.size,
-        uploadedAt: new Date().toISOString(),
-        owner,
-        mimeType: file.mimetype,
-        storageName: file.filename,
-      };
+      const document = createDocumentRecord(file, owner);
 
       try {
         documentRepository.save(document);
       } catch (error) {
-        try {
-          await documentRepository.removeFile(file.filename);
-        } catch {
-          // Mantém a falha original; a limpeza é apenas compensatória.
-        }
+        await removeUploadedFile(documentRepository, file.filename);
         throw error;
       }
 

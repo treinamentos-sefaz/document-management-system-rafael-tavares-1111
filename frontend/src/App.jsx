@@ -13,6 +13,7 @@ const userId = import.meta.env.VITE_USER_ID?.trim() || 'demo-user';
 export default function App() {
   const [documents, setDocuments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [listError, setListError] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [downloadingId, setDownloadingId] = useState(null);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -23,6 +24,7 @@ export default function App() {
 
     async function refreshDocuments() {
       setIsLoading(true);
+      setListError(null);
       try {
         const result = await listDocuments(userId);
         if (isCurrent) {
@@ -30,7 +32,7 @@ export default function App() {
         }
       } catch (error) {
         if (isCurrent) {
-          setNotice({ type: 'error', message: error.message });
+          setListError(error.message);
         }
       } finally {
         if (isCurrent) {
@@ -127,6 +129,7 @@ export default function App() {
         <DocumentList
           documents={documents}
           isLoading={isLoading}
+          error={listError}
           downloadingId={downloadingId}
           onDownload={handleDownload}
           onRefresh={() => setRefreshToken((current) => current + 1)}

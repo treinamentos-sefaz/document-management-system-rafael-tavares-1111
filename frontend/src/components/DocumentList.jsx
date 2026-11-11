@@ -15,6 +15,7 @@ function formatUploadDate(value) {
 export default function DocumentList({
   documents,
   isLoading,
+  error,
   downloadingId,
   onDownload,
   onRefresh,
@@ -40,6 +41,14 @@ export default function DocumentList({
 
       {isLoading ? (
         <div className="list-state" role="status">Carregando documentos...</div>
+      ) : error ? (
+        <div className="list-state empty-state" role="alert">
+          <h3>Não foi possível carregar os documentos</h3>
+          <p>{error}</p>
+          <button className="download-button" type="button" onClick={onRefresh}>
+            Tentar novamente
+          </button>
+        </div>
       ) : documents.length === 0 ? (
         <div className="list-state empty-state">
           <span className="empty-mark" aria-hidden="true">—</span>

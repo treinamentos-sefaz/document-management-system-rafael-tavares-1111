@@ -1,16 +1,42 @@
 const express = require('express');
+const path = require('node:path');
 const { createDocumentRepository } = require('./repositories/documentRepository');
 const { createDocumentService } = require('./services/documentService');
-const { createDocumentRouter, getAllowedMimeTypes, getMaxFileSizeBytes } = require('./routes/documentRoutes');
+const {
+  createDocumentRouter,
+  getAllowedMimeTypes,
+  getMaxFileSizeBytes,
+  getMaxUploadsPerMinute,
+} = require('./routes/documentRoutes');
 const { storageDirectory: defaultStorageDirectory } = require('./config/upload');
 
 const PORT = process.env.PORT || 3000;
 
+function loadAuthenticateOwner() {
+  if (process.env.NODE_ENV !== 'production' || !process.env.DMS_AUTH_MIDDLEWARE) {
+    return undefined;
+  }
+
+  const loadedModule = require(path.resolve(process.env.DMS_AUTH_MIDDLEWARE));
+  const authenticateOwner = loadedModule.authenticateOwner || loadedModule;
+  if (typeof authenticateOwner !== 'function') {
+    throw new Error('DMS_AUTH_MIDDLEWARE deve exportar um middleware de autenticação.');
+  }
+
+  return authenticateOwner;
+}
+
 function createApp({
   storageDirectory = defaultStorageDirectory,
   maxFileSizeBytes = getMaxFileSizeBytes(),
+  maxUploadsPerMinute = getMaxUploadsPerMinute(),
   allowedMimeTypes = getAllowedMimeTypes(),
+  authenticateOwner,
 } = {}) {
+  if (process.env.NODE_ENV === 'production' && typeof authenticateOwner !== 'function') {
+    throw new Error('Em produção, configure um middleware de autenticação que defina req.user.id.');
+  }
+
   const app = express();
   const documentRepository = createDocumentRepository(storageDirectory);
   const documentService = createDocumentService(documentRepository);
@@ -23,7 +49,9 @@ function createApp({
     documentService,
     storageDirectory,
     maxFileSizeBytes,
+    maxUploadsPerMinute,
     allowedMimeTypes,
+    authenticateOwner,
   }));
   app.use((req, res) => {
     res.status(404).json({
@@ -63,7 +91,7 @@ function createApp({
   return app;
 }
 
-const app = createApp();
+const app = createApp({ authenticateOwner: loadAuthenticateOwner() });
 
 if (require.main === module) {
   app.listen(PORT, () => {

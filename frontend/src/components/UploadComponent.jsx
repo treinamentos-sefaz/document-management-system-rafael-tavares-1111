@@ -46,7 +46,7 @@ export default function UploadComponent({ onUpload, isUploading }) {
         </label>
 
         <div className="upload-footer">
-          <span className="size-hint">Limite padrão: 10 MB</span>
+          <span className="size-hint">Tipos e tamanho validados pelo servidor</span>
           <button className="primary-button" type="submit" disabled={!selectedFile || isUploading}>
             {isUploading ? 'Enviando...' : 'Enviar documento'}
           </button>

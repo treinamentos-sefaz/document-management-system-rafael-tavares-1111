@@ -4,6 +4,14 @@ const path = require('node:path');
 function createDocumentRepository(storageDirectory) {
   const documents = new Map();
 
+  function getFilePath(storageName) {
+    if (typeof storageName !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(storageName)) {
+      throw new Error('Nome interno de arquivo inválido.');
+    }
+
+    return path.join(storageDirectory, storageName);
+  }
+
   return {
     save(document) {
       if (documents.has(document.id)) {
@@ -28,13 +36,11 @@ function createDocumentRepository(storageDirectory) {
       return document?.owner === owner ? document : undefined;
     },
 
-    getFilePath(storageName) {
-      return path.join(storageDirectory, storageName);
-    },
+    getFilePath,
 
     async removeFile(storageName) {
       try {
-        await fs.unlink(path.join(storageDirectory, storageName));
+        await fs.unlink(getFilePath(storageName));
       } catch (error) {
         if (error.code !== 'ENOENT') {
           throw error;

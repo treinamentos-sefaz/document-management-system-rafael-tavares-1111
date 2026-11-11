@@ -29,8 +29,8 @@ Disponibilizar uma aplicação web para que usuários identificados possam envia
 | ID | Requisito |
 | --- | --- |
 | RF-01 | O sistema deve aceitar um arquivo por requisição de upload em `multipart/form-data`, no campo `file`. |
-| RF-02 | O sistema deve exigir um identificador de usuário não vazio no cabeçalho `X-User-Id` para upload, listagem e download. |
-| RF-03 | O sistema deve rejeitar requisições sem arquivo, com mais de um arquivo, arquivo vazio ou arquivo que exceda o limite configurado. |
+| RF-02 | Em desenvolvimento, o sistema deve exigir um identificador não vazio no cabeçalho `X-User-Id`; em produção, deve obter a identidade exclusivamente de middleware de autenticação confiável. |
+| RF-03 | O sistema deve rejeitar requisições sem arquivo, com mais de um arquivo, campos multipart extras, arquivo vazio ou arquivo que exceda o limite configurado. |
 | RF-04 | O sistema deve aceitar somente os tipos de arquivo definidos na configuração do MVP, validando a extensão e o MIME informado. A implementação deve tratar esses valores como entrada não confiável; essa validação não equivale à inspeção do conteúdo do arquivo. |
 | RF-05 | Após um upload válido, o sistema deve armazenar o binário em `backend/storage`, gerar um identificador público único e registrar seus metadados em memória. |
 | RF-06 | O nome físico do arquivo deve ser gerado pela aplicação e não pode depender do nome enviado pelo usuário. A API não deve expor caminhos nem nomes físicos do filesystem. |
@@ -53,7 +53,8 @@ Disponibilizar uma aplicação web para que usuários identificados possam envia
 | RNF-06 | O nome original do arquivo deve ser tratado como dado não confiável ao compor cabeçalhos HTTP ou exibi-lo na interface. |
 | RNF-07 | A aplicação deve tratar falhas de leitura e gravação no filesystem sem encerrar o processo e sem informar detalhes internos ao cliente. |
 | RNF-08 | O código deve seguir JavaScript sem TypeScript, backend Node.js/Express em CommonJS, frontend React/Vite em ESM e testes backend com `node:test`. |
-| RNF-09 | Como não há autenticação, `X-User-Id` é apenas um identificador declarado pelo cliente e pode ser falsificado. Esta versão serve somente a ambientes controlados/demonstração; não oferece isolamento seguro entre usuários e não deve ser exposta como serviço multiusuário antes da adoção de autenticação e autorização confiáveis. |
+| RNF-09 | O modo de demonstração usa `X-User-Id`, que pode ser falsificado. Em `NODE_ENV=production`, o backend deve falhar ao iniciar sem middleware confiável configurado por `DMS_AUTH_MIDDLEWARE`; esse middleware deve definir `req.user.id`. |
+| RNF-10 | O backend deve limitar uploads por IP (20 por minuto por padrão, configurável por `MAX_UPLOADS_PER_MINUTE`) e limitar partes, campos e quantidade de arquivos multipart. O limite de taxa não substitui quota total de armazenamento. |
 
 ## 5. Modelo de dados (metadados do documento)
 
@@ -65,7 +66,7 @@ Os metadados são mantidos por um repositório em memória. O nome físico é um
 | `originalName` | string | Público | Nome original fornecido pelo cliente, preservado para exibição e download com tratamento seguro. |
 | `size` | number | Público | Tamanho do arquivo em bytes. Deve ser maior que zero e não exceder o limite configurado. |
 | `uploadedAt` | string | Público | Data e hora do recebimento bem-sucedido, em ISO 8601 UTC. |
-| `owner` | string | Público | Valor do cabeçalho `X-User-Id` usado na criação. Não representa identidade autenticada. |
+| `owner` | string | Público | Identidade do usuário: no modo de demonstração vem de `X-User-Id`; em produção vem de `req.user.id` fornecido pelo middleware confiável. |
 | `mimeType` | string | Interno | Tipo MIME registrado para validação e cabeçalho de download. É metadado fornecido pelo cliente, não prova do conteúdo. |
 | `storageName` | string | Interno | Nome gerado pelo backend para localizar o binário dentro de `backend/storage`; nunca é um caminho fornecido pelo cliente nem enviado na resposta da API. |
 
@@ -90,7 +91,7 @@ A referência interna ao binário é resolvida exclusivamente no backend. Nenhum
 - As rotas abaixo são relativas ao backend Express e não incluem prefixo `/api`.
 - No navegador, o frontend usa `/api` e o proxy do Vite remove esse prefixo antes de encaminhar ao backend. Portanto, por exemplo, `POST /api/upload` no frontend chega como `POST /upload` no Express.
 - As requisições de upload usam `multipart/form-data`; listagem e erros usam JSON. O download retorna conteúdo binário.
-- `X-User-Id` é obrigatório em todos os endpoints funcionais. Valores ausentes ou compostos somente por espaços são inválidos. A API deve impor um tamanho máximo razoável para esse valor, definido na implementação.
+- No modo de demonstração, `X-User-Id` é obrigatório em todos os endpoints funcionais e não autentica o cliente. Em produção, o owner vem de `req.user.id`; o cabeçalho declarado pelo cliente não é fonte de identidade.
 - Resposta de erro JSON:
 
 ```json
@@ -179,13 +180,15 @@ As mensagens são destinadas ao usuário; o campo `code` é estável para tratam
 - `services/`: validar regras de negócio, controlar associação ao usuário, metadados, autorização por owner e coordenação de operações de arquivo.
 - `repositories/`: encapsular os metadados em memória e a localização interna dos arquivos, sem dependência de HTTP.
 - Configurar Multer com `diskStorage` em `backend/storage`. Usar nome interno gerado pelo servidor, nunca o nome original como caminho. Garantir que o diretório exista ou seja criado pela inicialização apropriada.
+- Restringir os limites multipart a um arquivo e nenhuma parte de formulário adicional; aplicar `MAX_UPLOADS_PER_MINUTE` por endereço IP e validar que nomes internos usados para resolver caminhos sejam UUIDs gerados pelo servidor.
+- Em produção, carregar por `DMS_AUTH_MIDDLEWARE` um módulo CommonJS que exporte o middleware de autenticação e defina `req.user.id`. A aplicação deve falhar ao iniciar se o middleware não estiver configurado.
 - Manter erros de validação do Multer e de negócio mapeados para respostas HTTP consistentes na borda do sistema.
 
 ### Frontend
 
 - Usar componentes funcionais React e separar apresentação, página e acesso HTTP conforme a estrutura existente (`components/`, `pages/`, `services/`).
 - Centralizar chamadas `fetch` no serviço de API e usar o prefixo `/api` do proxy Vite.
-- Para o MVP sem autenticação, obter o identificador de usuário por configuração de demonstração definida para a aplicação; não tratar esse valor como credencial nem alegar que protege os dados.
+- Para desenvolvimento local, obter o identificador de usuário por configuração de demonstração definida para a aplicação; não tratar esse valor como credencial nem alegar que protege os dados. Em produção, o owner deve vir da identidade autenticada no backend.
 - Renderizar apenas metadados públicos. Fazer download pelo endpoint dedicado, tratando resposta não-2xx e evitando construir URLs com caminhos de arquivo locais.
 
 ### Armazenamento e ciclo de vida

@@ -29,6 +29,19 @@ function getMaxFileSizeBytes(value = process.env.MAX_FILE_SIZE_MB) {
   return Math.floor(sizeInMegabytes * megabyte);
 }
 
+function getMaxUploadsPerMinute(value = process.env.MAX_UPLOADS_PER_MINUTE) {
+  if (value === undefined || value === '') {
+    return 20;
+  }
+
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw new Error('MAX_UPLOADS_PER_MINUTE deve ser um número inteiro maior que zero.');
+  }
+
+  return limit;
+}
+
 function getAllowedMimeTypes(value = process.env.ALLOWED_MIME_TYPES) {
   const defaultMimeTypes = Object.values(supportedFileTypes).flat();
   const mimeTypes = value === undefined
@@ -57,6 +70,7 @@ function isAllowedFileType(file, allowedMimeTypes) {
 module.exports = {
   getAllowedMimeTypes,
   getMaxFileSizeBytes,
+  getMaxUploadsPerMinute,
   isAllowedFileType,
   storageDirectory,
 };
