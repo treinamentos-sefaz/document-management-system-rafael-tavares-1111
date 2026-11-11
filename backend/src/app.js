@@ -1,27 +1,69 @@
-// Seed do servidor backend do Document Management System.
-//
-// Este arquivo é apenas um ponto de partida mínimo. Ao longo do workshop você
-// vai usar o Agent Mode do GitHub Copilot para construir as camadas:
-//   - routes/       (definição das rotas)
-//   - controllers/  (entrada HTTP e validação)
-//   - services/     (regras de negócio)
-//   - repositories/ (persistência: arquivos locais + metadados em memória)
-//
-// Restrição do projeto: uploads são gravados no filesystem local da aplicação
-// usando multer com diskStorage. Não utilize provedores externos.
-
 const express = require('express');
+const { createDocumentRepository } = require('./repositories/documentRepository');
+const { createDocumentService } = require('./services/documentService');
+const { createDocumentRouter, getAllowedMimeTypes, getMaxFileSizeBytes } = require('./routes/documentRoutes');
+const { storageDirectory: defaultStorageDirectory } = require('./config/upload');
 
-const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
+function createApp({
+  storageDirectory = defaultStorageDirectory,
+  maxFileSizeBytes = getMaxFileSizeBytes(),
+  allowedMimeTypes = getAllowedMimeTypes(),
+} = {}) {
+  const app = express();
+  const documentRepository = createDocumentRepository(storageDirectory);
+  const documentService = createDocumentService(documentRepository);
 
-// Endpoint de verificação de saúde. As demais rotas (/upload, /documents,
-// /documents/:id/download) serão implementadas durante o Passo 2.
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
+  app.use(express.json());
+  app.get('/health', (req, res) => {
+    res.json({ status: 'ok' });
+  });
+  app.use(createDocumentRouter({
+    documentService,
+    storageDirectory,
+    maxFileSizeBytes,
+    allowedMimeTypes,
+  }));
+  app.use((req, res) => {
+    res.status(404).json({
+      error: { code: 'NOT_FOUND', message: 'Recurso não encontrado.' },
+    });
+  });
+  app.use((error, req, res, next) => {
+    if (res.headersSent) {
+      next(error);
+      return;
+    }
+
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      res.status(413).json({
+        error: { code: 'FILE_TOO_LARGE', message: 'O arquivo excede o limite permitido.' },
+      });
+      return;
+    }
+
+    if (error.code && error.code.startsWith('LIMIT_')) {
+      res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'O formulário de upload é inválido.' },
+      });
+      return;
+    }
+
+    const statusCode = error.statusCode || 500;
+    const isInternalError = statusCode >= 500;
+    res.status(statusCode).json({
+      error: {
+        code: isInternalError ? 'INTERNAL_SERVER_ERROR' : error.code,
+        message: isInternalError ? 'Não foi possível processar a solicitação.' : error.message,
+      },
+    });
+  });
+
+  return app;
+}
+
+const app = createApp();
 
 if (require.main === module) {
   app.listen(PORT, () => {
@@ -30,3 +72,4 @@ if (require.main === module) {
 }
 
 module.exports = app;
+module.exports.createApp = createApp;
